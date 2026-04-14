@@ -536,25 +536,6 @@ def build_horsehead(col, M):
                           n_segs=40, mat=M['orange'])
     collect(head, col)
 
-    # === Внутренние силовые ребра (видны как тёмные полосы по периметру) ===
-    # Внешний обод — тонкая тёмная полоска по дуге для контраста
-    rim_segs = 36
-    for i in range(rim_segs):
-        a = math.pi / 2 - (i + 0.5) * math.pi / rim_segs
-        rx = arc_cx + HH_R * math.cos(a)
-        rz = arc_cz + HH_R * math.sin(a)
-        seg_len = HH_R * math.pi / rim_segs * 1.10
-        for side, y in (('L', hh_thick / 2 + 0.005), ('R', -(hh_thick / 2 + 0.005))):
-            bpy.ops.mesh.primitive_cube_add(location=(rx, y, rz))
-            r = bpy.context.active_object
-            r.name = f'HH_Rim_{i}_{side}'
-            r.scale = (seg_len / 2, 0.01 / 2, 0.06 / 2)
-            bpy.ops.object.transform_apply(scale=True)
-            r.rotation_euler = (0, a + math.pi / 2, 0)
-            bpy.ops.object.transform_apply(rotation=True)
-            set_mat(r, M['navy'])
-            collect(r, col)
-
     # === Шкив (sheave) в нижней точке дуги — где трос выходит вертикально ===
     sheave_x = arc_cx
     sheave_z = arc_cz - HH_R
@@ -663,6 +644,24 @@ def build_gearbox(col, M):
         collect(cyl(f'GB_Bolt_{bx_off:.2f}_{by_off:.2f}',
                     GB_X + bx_off, by_off, GB_Z + GB_H / 2 + 0.01,
                     0.025, 0.12, (0, 0, 0), M['steel'], verts=8), col)
+
+    # === Монтажный постамент редуктора (соединяет редуктор с рамой-основанием) ===
+    # Редуктор висит: GB_Z - GB_H/2 = 0.475m, рама = BASE_H = 0.18m → зазор 0.295m.
+    ped_h = GB_Z - GB_H / 2 - BASE_H   # = 0.295 m
+    ped_cz = BASE_H + ped_h / 2         # = 0.3275 m
+    # Четыре угловые стойки постамента
+    for i, (lx, ly) in enumerate((
+        ( GB_W / 2 - 0.13,  GB_D / 2 - 0.13),
+        (-GB_W / 2 + 0.13,  GB_D / 2 - 0.13),
+        ( GB_W / 2 - 0.13, -(GB_D / 2 - 0.13)),
+        (-GB_W / 2 + 0.13, -(GB_D / 2 - 0.13)),
+    )):
+        collect(box(f'GB_Ped_{i}', GB_X + lx, ly, ped_cz,
+                    0.13, 0.13, ped_h, M['dark_steel']), col)
+    # Две продольные балки у основания постамента (видны под редуктором)
+    for ly in (GB_D / 2 - 0.13, -(GB_D / 2 - 0.13)):
+        collect(box(f'GB_PedBeam_{ly:.2f}', GB_X, ly, BASE_H + 0.06,
+                    GB_W - 0.22, 0.15, 0.12, M['dark_steel']), col)
 
     print("[gearbox] Редуктор готов.")
 
@@ -788,7 +787,7 @@ def build_pitmans(col, M):
         bpy.ops.mesh.primitive_cube_add(location=(cx, y_p, cz))
         pit = bpy.context.active_object
         pit.name = f'Pitman_{tag}'
-        pit.scale = (0.10 / 2, 0.085 / 2, pit_len / 2)
+        pit.scale = (0.14 / 2, 0.11 / 2, pit_len / 2)   # толще для видимости
         bpy.ops.object.transform_apply(scale=True)
         pit.rotation_euler = (0, ang, 0)
         bpy.ops.object.transform_apply(rotation=True)
@@ -797,11 +796,11 @@ def build_pitmans(col, M):
 
         # Верхний подшипниковый узел шатуна
         collect(cyl(f'Pitman_BrgTop_{tag}', EQ_X, y_p, EQ_Z,
-                    0.075, 0.20,
+                    0.090, 0.22,
                     (math.pi / 2, 0, 0), M['dark_steel']), col)
         # Нижний подшипниковый узел шатуна (на кривошипном пальце)
         collect(cyl(f'Pitman_BrgBot_{tag}', CRANK_PIN_X, y_p, CRANK_PIN_Z,
-                    0.075, 0.20,
+                    0.090, 0.22,
                     (math.pi / 2, 0, 0), M['dark_steel']), col)
 
     print("[pitmans] Шатуны готовы.")
