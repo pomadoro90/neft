@@ -159,19 +159,20 @@ SP_LEG_W  = 0.16       # ширина сечения ноги
 SP_LEG_D  = 0.22       # глубина сечения ноги
 
 GB_X   = PIVOT_X - 2.75  # X центра редуктора
-GB_Z   = 0.65             # Z центра редуктора
+GB_Z   = 0.95             # Z центра редуктора (приподнят, чтобы кривошип не задевал землю)
 GB_W   = 1.15             # длина корпуса редуктора (X)
 GB_D   = 1.05             # ширина корпуса (Y)
-GB_H   = 0.90             # высота корпуса (Z)
+GB_H   = 0.95             # высота корпуса (Z)
 
-CRANK_Z  = GB_Z + 0.05    # Z оси кривошипа
-CRANK_R  = 0.82           # радиус кривошипа
+CRANK_Z  = GB_Z + 0.05    # Z оси кривошипа (= 1.00)
+CRANK_R  = 0.70           # радиус кривошипа (нижняя точка ≈ 0.30 — над рамой)
 CRANK_ANG = math.radians(22)   # статический угол кривошипа
 CRANK_PIN_X = GB_X + CRANK_R * math.sin(CRANK_ANG)
 CRANK_PIN_Z = CRANK_Z + CRANK_R * math.cos(CRANK_ANG)
 
 EQ_X = PIVOT_X - BEAM_REAR + 0.70   # X траверсы (equalizer)
-EQ_Z = PIVOT_Z                        # Z траверсы
+# Траверса висит чуть ниже нижней полки балки, чтобы шатуны не пересекали балку
+EQ_Z = PIVOT_Z - BEAM_H / 2 - FLANGE_T - 0.08
 
 MOTOR_X = GB_X + 2.30   # X центра электродвигателя
 MOTOR_Z = 0.52
@@ -181,6 +182,10 @@ BASE_W   = 2.60         # ширина рамы
 BASE_H   = 0.18         # высота рамы
 
 WH_X = HH_TIP_X        # X устья скважины
+
+# Глобальные точки подвеса (вычисляются в build_horsehead)
+BRIDLE_TOP_X = HH_TIP_X
+BRIDLE_TOP_Z = PIVOT_Z - HH_R
 
 
 # ============================================================
@@ -372,55 +377,78 @@ def build_beam(col, M):
 
 def build_horsehead(col, M):
     """
-    Дуговая конструкция на переднем конце балансирной балки.
-    Дуга — часть окружности радиуса HH_R.
-    Центр окружности: (HH_TIP_X, PIVOT_Z + HH_R)
-    Дуга стартует снизу (угол -π/2, кабель висит вертикально)
-    и охватывает назад-вверх на HH_ARC радиан.
+    Головка балансира («horsehead»).
+    Полудисковая форма перед концом балки:
+      центр дуги  = (HH_TIP_X, PIVOT_Z) — на оси балки в её носу
+      радиус       = HH_R
+      дуга 180°    — от верха (12 ч) ПО ЧАСОВОЙ через перед (3 ч) в низ (6 ч)
+    Низ дуги — точка подвеса бриделя; кабель висит вертикально.
     """
     print("[horsehead] Строю головку...")
 
-    arc_center_x = HH_TIP_X
-    arc_center_z = PIVOT_Z + HH_R
+    arc_cx = HH_TIP_X
+    arc_cz = PIVOT_Z
 
-    ang_start = -math.pi / 2            # нижняя точка дуги (прямо вниз)
-    ang_end   = ang_start - HH_ARC      # верхняя точка (назад-вверх)
+    ang_start = math.pi / 2     # верх (12 ч)
+    arc_span  = math.pi          # 180°  (по часовой стрелке)
 
-    seg_arc = HH_ARC / HH_SEGS
-    seg_len = HH_R * seg_arc * 1.12    # длина одного блока с небольшим перекрытием
+    seg_arc = arc_span / HH_SEGS
+    seg_len = HH_R * seg_arc * 1.18
 
     for i in range(HH_SEGS):
-        t     = (i + 0.5) / HH_SEGS
-        angle = ang_start + t * (ang_end - ang_start)
+        t = (i + 0.5) / HH_SEGS
+        angle = ang_start - t * arc_span     # по часовой → угол убывает
 
-        sx = arc_center_x + HH_R * math.cos(angle)
-        sz = arc_center_z + HH_R * math.sin(angle)
+        sx = arc_cx + HH_R * math.cos(angle)
+        sz = arc_cz + HH_R * math.sin(angle)
 
-        # Тангенциальный угол (поворот блока по касательной)
-        tang = angle + math.pi / 2
+        tang = angle - math.pi / 2          # касательная к окружности
 
+        # Боковые рёбра дуги (две параллельные пластины-обода)
         for tag, y in (('L', BEAM_Y), ('R', -BEAM_Y)):
             bpy.ops.mesh.primitive_cube_add(location=(sx, y, sz))
             seg = bpy.context.active_object
-            seg.name = f'HH_Seg_{i}_{tag}'
-            seg.scale = (seg_len / 2, BEAM_WEB_W / 2, BEAM_H * 0.55 / 2)
+            seg.name = f'HH_Rim_{i}_{tag}'
+            seg.scale = (seg_len / 2, 0.08 / 2, 0.26 / 2)
             bpy.ops.object.transform_apply(scale=True)
             seg.rotation_euler = (0, tang, 0)
             bpy.ops.object.transform_apply(rotation=True)
             set_mat(seg, M['dark_steel'])
             collect(seg, col)
 
-        # Поперечные диафрагмы головки (каждые 3 сегмента)
-        if i % 3 == 0:
+        # Поперечные рёбра жёсткости (каждые 3 сегмента + первый/последний)
+        if i % 3 == 0 or i == HH_SEGS - 1 or i == 0:
             collect(box(f'HH_Cross_{i}', sx, 0, sz,
-                        0.06, BEAM_Y * 2, BEAM_H * 0.5, M['dark_steel']), col)
+                        0.06, BEAM_Y * 2, 0.22, M['dark_steel']), col)
 
-    # Шкив-хомут (sheave) в нижней точке дуги (место крепления бридела)
-    collect(cyl('HH_Sheave', HH_TIP_X, 0, PIVOT_Z,
-                0.13, BEAM_Y * 2 + 0.55,
-                (math.pi / 2, 0, 0), M['dark_steel'], verts=24), col)
+    # === Силовая обшивка / задний веб (вертикальная стенка от верха к низу дуги
+    #     по линии носа балки — закрывает «букву D») ===
+    for tag, y in (('L', BEAM_Y - 0.02), ('R', -(BEAM_Y - 0.02))):
+        collect(box(f'HH_Web_{tag}', arc_cx, y, arc_cz,
+                    0.10, 0.05, 2 * HH_R, M['paint_gray']), col)
 
-    print("[horsehead] Головка готова.")
+    # Диагональный раскос внутри головки (имитация фермы)
+    diag_top_x  = arc_cx + HH_R * math.cos(math.radians(60))   # ~верх-перёд
+    diag_top_z  = arc_cz + HH_R * math.sin(math.radians(60))
+    diag_bot_x  = arc_cx + HH_R * math.cos(math.radians(-60))  # ~низ-перёд
+    diag_bot_z  = arc_cz + HH_R * math.sin(math.radians(-60))
+    collect(angled_box('HH_Truss',
+                       diag_top_x, diag_top_z, diag_bot_x, diag_bot_z,
+                       0, BEAM_Y * 2 - 0.05, 0.05, M['steel']), col)
+
+    # === Шкив (sheave) в нижней точке дуги — кабель катится по нему ===
+    sheave_x = arc_cx + HH_R * math.cos(-math.pi / 2)   # = arc_cx
+    sheave_z = arc_cz + HH_R * math.sin(-math.pi / 2)   # = PIVOT_Z - HH_R
+    collect(cyl('HH_Sheave', sheave_x, 0, sheave_z,
+                0.11, BEAM_Y * 2 + 0.40,
+                (math.pi / 2, 0, 0), M['steel'], verts=24), col)
+
+    # Сохраняем точку подвеса для функции бриделя
+    global BRIDLE_TOP_X, BRIDLE_TOP_Z
+    BRIDLE_TOP_X = sheave_x
+    BRIDLE_TOP_Z = sheave_z
+
+    print(f"[horsehead] Готово. Точка подвеса: x={sheave_x:.2f}, z={sheave_z:.2f}")
 
 
 # ============================================================
@@ -428,33 +456,41 @@ def build_horsehead(col, M):
 # ============================================================
 
 def build_bridle(col, M):
-    """Тросы бридела, хомут-подвеска и полированная штанга."""
+    """Тросы бриделя, хомут-подвеска и полированная штанга.
+       Висят от шкива в низу головки (BRIDLE_TOP_*).
+       Идут вниз к устью скважины."""
     print("[bridle] Строю бридель...")
 
-    carrier_z = PIVOT_Z - 1.30   # Z хомута-подвески
-    carrier_x = HH_TIP_X
+    top_x = BRIDLE_TOP_X
+    top_z = BRIDLE_TOP_Z
+    carrier_z = top_z - 1.05      # хомут на 1 м ниже шкива
+    carrier_x = top_x
 
-    # Хомут (rod clamp / carrier bar)
-    collect(box('Carrier_Body',   carrier_x, 0, carrier_z,
-                0.09, 0.58, 0.25, M['steel']), col)
+    # Хомут полированной штанги
+    collect(box('Carrier_Body',    carrier_x, 0, carrier_z,
+                0.09, 0.58, 0.24, M['steel']), col)
     collect(box('Carrier_Clamp_T', carrier_x, 0, carrier_z + 0.13,
                 0.14, 0.68, 0.06, M['dark_steel']), col)
     collect(box('Carrier_Clamp_B', carrier_x, 0, carrier_z - 0.13,
                 0.14, 0.68, 0.06, M['dark_steel']), col)
 
-    # Тросы бридела (два цилиндра)
-    rope_len = PIVOT_Z - carrier_z
+    # Два троса бриделя
+    rope_len = top_z - carrier_z
     for y_off in (0.22, -0.22):
         collect(cyl(f'Bridle_{y_off:+.2f}',
-                    carrier_x, y_off, (PIVOT_Z + carrier_z) / 2,
+                    carrier_x, y_off, (top_z + carrier_z) / 2,
                     0.018, rope_len, (0, 0, 0), M['dark_steel']), col)
 
-    # Полированная штанга (блестящая, идёт вниз в скважину)
+    # Полированная штанга — от хомута до сальниковой камеры устья
+    polrod_top = carrier_z - 0.13
+    polrod_bot = BASE_H + 1.20         # высота сальниковой камеры
+    polrod_len = polrod_top - polrod_bot
+    polrod_cz  = (polrod_top + polrod_bot) / 2
     collect(cyl('PolishedRod',
-                carrier_x, 0, carrier_z - 1.35,
-                0.032, 2.70, (0, 0, 0), M['steel'], verts=16), col)
+                carrier_x, 0, polrod_cz,
+                0.032, polrod_len, (0, 0, 0), M['steel'], verts=16), col)
 
-    print("[bridle] Бридель готов.")
+    print(f"[bridle] Готово. Хомут z={carrier_z:.2f}, штанга L={polrod_len:.2f} м")
 
 
 # ============================================================
@@ -579,8 +615,17 @@ def build_pitmans(col, M):
     collect(cyl('Equalizer_Bar', EQ_X, 0, EQ_Z,
                 0.072, BEAM_Y * 2 + 1.05,
                 (math.pi / 2, 0, 0), M['steel']), col)
-    collect(box('Equalizer_Yoke', EQ_X, 0, EQ_Z,
-                0.16, BEAM_Y * 2 - 0.05, BEAM_H + 0.10, M['dark_steel']), col)
+    # Корпус подшипника траверсы (висит под балкой)
+    eq_yoke_h = (PIVOT_Z - BEAM_H / 2 - FLANGE_T) - EQ_Z + 0.08
+    eq_yoke_cz = EQ_Z + (PIVOT_Z - BEAM_H / 2 - FLANGE_T - EQ_Z) / 2
+    collect(box('Equalizer_Yoke', EQ_X, 0, eq_yoke_cz,
+                0.18, BEAM_Y * 2 - 0.05, eq_yoke_h, M['dark_steel']), col)
+    # Серьги-подвески (две вертикальные пластины от нижней полки до траверсы)
+    hanger_z = (PIVOT_Z - BEAM_H / 2 - FLANGE_T + EQ_Z) / 2
+    hanger_h = (PIVOT_Z - BEAM_H / 2 - FLANGE_T) - EQ_Z
+    for tag, y in (('L', BEAM_Y), ('R', -BEAM_Y)):
+        collect(box(f'Equalizer_Hanger_{tag}', EQ_X, y, hanger_z,
+                    0.10, 0.06, hanger_h + 0.06, M['steel']), col)
 
     # Шатуны (по одному с каждой стороны)
     for tag, y_p in (('L', BEAM_Y - 0.06), ('R', -(BEAM_Y - 0.06))):
@@ -740,40 +785,47 @@ def build_safety(col, M):
 
     # --- Кожух кривошипа (листовые стенки по бокам от кривошипов) ---
     cg_y = GB_D / 2 + 0.20
+    cg_h = CRANK_R * 2 + 0.30
     for tag, y_s in (('L', cg_y), ('R', -cg_y)):
         collect(box(f'CrankGuard_{tag}', GB_X, y_s, CRANK_Z,
-                    CRANK_R * 2 + 0.40, 0.04, CRANK_R * 2 + 0.25, M['yellow']), col)
+                    CRANK_R * 2 + 0.40, 0.04, cg_h, M['yellow']), col)
     # Верхняя крышка кожуха
-    collect(box('CrankGuard_Top', GB_X, 0, CRANK_Z + CRANK_R + 0.18,
+    collect(box('CrankGuard_Top', GB_X, 0, CRANK_Z + CRANK_R + 0.16,
                 CRANK_R * 2 + 0.38, cg_y * 2, 0.04, M['yellow']), col)
 
-    # --- Рабочая площадка (вокруг редуктора/двигателя) ---
-    platform_z = 1.60
-    collect(box('Platform', GB_X, 0, platform_z,
-                2.60, BASE_W + 0.25, 0.06, M['dark_steel']), col)
+    # --- Рабочая площадка (рядом с двигателем, не над кривошипами) ---
+    # Платформа смещена в сторону двигателя; кривошипы вращаются под открытым небом
+    platform_z = max(CRANK_Z + CRANK_R + 0.20, GB_Z + GB_H / 2 + 0.20)
+    plat_cx = (GB_X + GB_W / 2 + MOTOR_X - 0.65) / 2  # между редуктором и двигателем
+    plat_lx = MOTOR_X - 0.65 - (GB_X + GB_W / 2) + 0.10
+    collect(box('Platform', plat_cx, 0, platform_z,
+                plat_lx, BASE_W + 0.25, 0.06, M['dark_steel']), col)
 
     # Решётка площадки (имитация полосами)
-    for i in range(7):
-        xp = GB_X - 1.20 + i * 0.40
+    n_grate = max(3, int(plat_lx / 0.30))
+    for i in range(n_grate):
+        xp = plat_cx - plat_lx / 2 + (i + 0.5) * plat_lx / n_grate
         collect(box(f'Grating_{i}', xp, 0, platform_z + 0.02,
                     0.03, BASE_W + 0.22, 0.03, M['dark_steel']), col)
 
     # --- Стойки поручней ---
-    rail_z   = platform_z + 0.55
-    rail_h   = 1.10
-    for xp in (GB_X - 1.18, GB_X, GB_X + 1.18):
+    rail_z = platform_z + 0.55
+    rail_h = 1.10
+    n_posts = max(3, int(plat_lx / 0.80))
+    for pi in range(n_posts):
+        xp = plat_cx - plat_lx / 2 + (pi + 0.5) * plat_lx / n_posts
         for tag, y_r in (('L', BASE_W / 2 + 0.12), ('R', -(BASE_W / 2 + 0.12))):
-            collect(cyl(f'RailPost_{xp:.1f}_{tag}', xp, y_r, rail_z,
+            collect(cyl(f'RailPost_{pi}_{tag}', xp, y_r, rail_z,
                         0.026, rail_h, (0, 0, 0), M['yellow']), col)
 
     # --- Верхний и средний поручни ---
     for dz, sfx in ((rail_h * 0.95, 'Top'), (rail_h * 0.50, 'Mid')):
         for tag, y_r in (('L', BASE_W / 2 + 0.12), ('R', -(BASE_W / 2 + 0.12))):
-            collect(box(f'Rail_{sfx}_{tag}', GB_X, y_r, platform_z + dz,
-                        2.50, 0.04, 0.04, M['yellow']), col)
+            collect(box(f'Rail_{sfx}_{tag}', plat_cx, y_r, platform_z + dz,
+                        plat_lx, 0.04, 0.04, M['yellow']), col)
 
     # --- Лестница доступа на площадку ---
-    lad_x = GB_X - 1.20
+    lad_x = plat_cx - plat_lx / 2 + 0.20
     lad_y = BASE_W / 2 + 0.14
     num_rungs = 7
     for tag, y_s in (('Str_L', lad_y), ('Str_R', lad_y + 0.18)):
