@@ -441,42 +441,6 @@ def build_sampson(col, M):
                         (x_f + x_r) / 2, y_s, z_h,
                         lx, SP_LEG_D, 0.10, M['steel']), col)
 
-    # ---- X-образные диагональные раскосы (по каждой Y-стороне) ----
-    # Перекрёстная связь между передней и задней ногой одного Y-борта.
-    for y_sign, ytag in ((1, 'L'), (-1, 'R')):
-        yb = y_sign * SP_BASE_Y
-        # нижняя треть крест
-        obj = leg_3d(f'SP_XBrace_{ytag}_1',
-                     PIVOT_X + SP_BASE_X, yb, z_bot,
-                     PIVOT_X,             yb, z_bot + (z_top - z_bot) * 0.54,
-                     0.09, 0.07, M['steel'])
-        collect(obj, col)
-        obj = leg_3d(f'SP_XBrace_{ytag}_2',
-                     PIVOT_X - SP_BASE_X, yb, z_bot,
-                     PIVOT_X,             yb, z_bot + (z_top - z_bot) * 0.54,
-                     0.09, 0.07, M['steel'])
-        collect(obj, col)
-
-    # ---- Лестница (на переднем фасаде, по левой стороне) ----
-    n_rungs = 8
-    lad_x_bot = PIVOT_X + SP_BASE_X * 0.68
-    lad_x_top = PIVOT_X + SP_BASE_X * 0.08
-    lad_y     = SP_BASE_Y * 0.58
-    # Тетивы
-    for y_s, ltag in ((lad_y, 'L'), (-lad_y, 'R')):
-        obj = leg_3d(f'SP_LadStr_{ltag}',
-                     lad_x_bot, y_s, z_bot,
-                     lad_x_top, y_s, z_top * 0.94,
-                     0.040, 0.040, M['dark_steel'])
-        collect(obj, col)
-    # Перекладины
-    for i in range(n_rungs):
-        t = (i + 0.5) / n_rungs
-        rx = lad_x_bot + (lad_x_top - lad_x_bot) * t
-        rz = z_bot      + (z_top * 0.94 - z_bot) * t
-        collect(box(f'SP_LadRung_{i}', rx, 0, rz,
-                    0.035, lad_y * 2, 0.025, M['dark_steel']), col)
-
     # ---- Корпус подшипника шарнира (компактный, по центру рамы) ----
     collect(box('SP_BrgHousing', PIVOT_X, 0, PIVOT_Z,
                 0.40, 0.40, 0.38, M['dark_steel']), col)
